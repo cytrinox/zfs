@@ -3225,7 +3225,7 @@ dbuf_write_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 	}
 	DB_DNODE_EXIT(db);
 
-	if (!BP_IS_EMBEDDED(bp))
+	if (!BP_IS_EMBEDDED(bp) && !BP_IS_ENCRYPTED(bp))
 		bp->blk_fill = fill;
 
 	mutex_exit(&db->db_mtx);
