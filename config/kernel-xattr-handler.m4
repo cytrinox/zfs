@@ -386,7 +386,84 @@ AC_DEFUN([ZFS_AC_KERNEL_POSIX_ACL_FROM_XATTR_USERNS], [
 		AC_DEFINE(HAVE_POSIX_ACL_FROM_XATTR_USERNS, 1,
 		    [posix_acl_from_xattr() needs user_ns])
 	],[
+		dnl #
+		dnl # 4.4 API change,
+		dnl # The xattr_handler->list() callback was changed to take a
+		dnl # xattr_handler, and handler_flags argument was removed
+		dnl # and should be accessed by handler->flags.
+		dnl #
 		AC_MSG_RESULT(no)
+		AC_MSG_CHECKING(
+		    [whether xattr_handler->list() wants xattr_handler])
+		ZFS_LINUX_TRY_COMPILE([
+			#include <linux/xattr.h>
+
+			size_t list(const struct xattr_handler *handler,
+			    struct dentry *dentry, char *list, size_t list_size,
+			    const char *name, size_t name_len) { return 0; }
+			static const struct xattr_handler
+			    xops __attribute__ ((unused)) = {
+				.list = list,
+			};
+		],[
+		],[
+			AC_MSG_RESULT(yes)
+			AC_DEFINE(HAVE_XATTR_LIST_HANDLER, 1,
+			    [xattr_handler->list() wants xattr_handler])
+		],[
+			dnl #
+			dnl # 2.6.33 API change,
+			dnl # The xattr_handler->list() callback was changed
+			dnl # to take a dentry instead of an inode, and a
+			dnl # handler_flags argument was added.
+			dnl #
+			AC_MSG_RESULT(no)
+			AC_MSG_CHECKING(
+			    [whether xattr_handler->list() wants dentry])
+			ZFS_LINUX_TRY_COMPILE([
+				#include <linux/xattr.h>
+
+				size_t list(struct dentry *dentry,
+				    char *list, size_t list_size,
+				    const char *name, size_t name_len,
+				    int handler_flags) { return 0; }
+				static const struct xattr_handler
+				    xops __attribute__ ((unused)) = {
+					.list = list,
+				};
+			],[
+			],[
+				AC_MSG_RESULT(yes)
+				AC_DEFINE(HAVE_XATTR_LIST_DENTRY, 1,
+				    [xattr_handler->list() wants dentry])
+			],[
+				dnl #
+				dnl # 2.6.32 API
+				dnl #
+				AC_MSG_RESULT(no)
+				AC_MSG_CHECKING(
+				    [whether xattr_handler->list() wants inode])
+				ZFS_LINUX_TRY_COMPILE([
+					#include <linux/xattr.h>
+
+					size_t list(struct inode *ip, char *lst,
+					    size_t list_size, const char *name,
+					    size_t name_len) { return 0; }
+					static const struct xattr_handler
+					    xops __attribute__ ((unused)) = {
+						.list = list,
+					};
+				],[
+				],[
+					AC_MSG_RESULT(yes)
+					AC_DEFINE(HAVE_XATTR_LIST_INODE, 1,
+					    [xattr_handler->list() wants inode])
+				],[
+		                        AC_MSG_ERROR(
+					    [no; please file a bug report])
+				])
+			])
+		])
 	])
 ])
 
