@@ -99,6 +99,25 @@ extern "C" {
  * physical I/O.  The nop write feature can handle writes in either
  * syncing or open context (i.e. zil writes) and as a result is mutually
  * exclusive with dedup.
+ *
+ * Encryption:
+ * Encryption introduces a few idiosyncrasies to the io pipeline. Encrypted
+ * blocks require a 96 bit IV and a 64 bit salt. In the case of dedup blocks
+ * we want these 2 values to equivalent for matching data. In order to
+ * accomplish this, we generate both of these values from a truncated
+ * SHA256-HMAC of the plain data, which is simply performed in the
+ * zio_encrypt_ddt stage. For non-dedup blocks, however, we do not need to
+ * perform this expensive operation. In this case we generate the salt randomly
+ * and generate the IV from a SHA256 of DVA[0] + birth txg + the salt. This is
+ * much less expensive to do, but it requires that the block is allocated
+ * before we encrypt it. In addition, the checksum stage depends on the block
+ * being encrypted, so checksumming must now occur after both DVA allocation
+ * and encryption. The solution is to add a second checksum and encryption
+ * stage. The first checksum stage suppports non-encrypted blocks and encrypted
+ * + dedup blocks while the second supports encrypted + non-dedup blocks. The
+ * first encryption stage supports encypted + dedup blocks while the second
+ * supports encrypted + non-dedup blocks. For more info on the encryption
+ * parameters see the block comment in zio_crypt.c
  */
 
 /*
@@ -112,31 +131,35 @@ enum zio_stage {
 	ZIO_STAGE_ISSUE_ASYNC		= 1 << 3,	/* RWF-- */
 	ZIO_STAGE_WRITE_BP_INIT		= 1 << 4,	/* -W--- */
 
-	ZIO_STAGE_CHECKSUM_GENERATE	= 1 << 5,	/* -W--- */
+	ZIO_STAGE_DDT_ENCRYPT	= 1 << 5,	/* -W--- */
+	ZIO_STAGE_CHECKSUM_GENERATE	= 1 << 6,	/* -W--- */
 
-	ZIO_STAGE_NOP_WRITE		= 1 << 6,	/* -W--- */
+	ZIO_STAGE_NOP_WRITE		= 1 << 7,	/* -W--- */
 
-	ZIO_STAGE_DDT_READ_START	= 1 << 7,	/* R---- */
-	ZIO_STAGE_DDT_READ_DONE		= 1 << 8,	/* R---- */
-	ZIO_STAGE_DDT_WRITE		= 1 << 9,	/* -W--- */
-	ZIO_STAGE_DDT_FREE		= 1 << 10,	/* --F-- */
+	ZIO_STAGE_DDT_READ_START	= 1 << 8,	/* R---- */
+	ZIO_STAGE_DDT_READ_DONE		= 1 << 9,	/* R---- */
+	ZIO_STAGE_DDT_WRITE		= 1 << 10,	/* -W--- */
+	ZIO_STAGE_DDT_FREE		= 1 << 11,	/* --F-- */
 
-	ZIO_STAGE_GANG_ASSEMBLE		= 1 << 11,	/* RWFC- */
-	ZIO_STAGE_GANG_ISSUE		= 1 << 12,	/* RWFC- */
+	ZIO_STAGE_GANG_ASSEMBLE		= 1 << 12,	/* RWFC- */
+	ZIO_STAGE_GANG_ISSUE		= 1 << 13,	/* RWFC- */
 
-	ZIO_STAGE_DVA_ALLOCATE		= 1 << 13,	/* -W--- */
-	ZIO_STAGE_DVA_FREE		= 1 << 14,	/* --F-- */
-	ZIO_STAGE_DVA_CLAIM		= 1 << 15,	/* ---C- */
+	ZIO_STAGE_DVA_ALLOCATE		= 1 << 14,	/* -W--- */
+	ZIO_STAGE_DVA_FREE		= 1 << 15,	/* --F-- */
+	ZIO_STAGE_DVA_CLAIM		= 1 << 16,	/* ---C- */
 
-	ZIO_STAGE_READY			= 1 << 16,	/* RWFCI */
+	ZIO_STAGE_ENCRYPT		= 1 << 17,	/* -W--- */
+	ZIO_STAGE_CHECKSUM_GENERATE_2	= 1 << 18,	/* -W--- */
 
-	ZIO_STAGE_VDEV_IO_START		= 1 << 17,	/* RW--I */
-	ZIO_STAGE_VDEV_IO_DONE		= 1 << 18,	/* RW--I */
-	ZIO_STAGE_VDEV_IO_ASSESS	= 1 << 19,	/* RW--I */
+	ZIO_STAGE_READY			= 1 << 19,	/* RWFCI */
 
-	ZIO_STAGE_CHECKSUM_VERIFY	= 1 << 20,	/* R---- */
+	ZIO_STAGE_VDEV_IO_START		= 1 << 20,	/* RW--I */
+	ZIO_STAGE_VDEV_IO_DONE		= 1 << 21,	/* RW--I */
+	ZIO_STAGE_VDEV_IO_ASSESS	= 1 << 22,	/* RW--I */
 
-	ZIO_STAGE_DONE			= 1 << 21	/* RWFCI */
+	ZIO_STAGE_CHECKSUM_VERIFY	= 1 << 23,	/* R---- */
+
+	ZIO_STAGE_DONE			= 1 << 24	/* RWFCI */
 };
 
 #define	ZIO_INTERLOCK_STAGES			\
@@ -187,11 +210,13 @@ enum zio_stage {
 
 #define	ZIO_REWRITE_PIPELINE			\
 	(ZIO_WRITE_COMMON_STAGES |		\
+	ZIO_STAGE_ENCRYPT |			\
 	ZIO_STAGE_WRITE_BP_INIT)
 
 #define	ZIO_WRITE_PIPELINE			\
 	(ZIO_WRITE_COMMON_STAGES |		\
 	ZIO_STAGE_WRITE_BP_INIT |		\
+	ZIO_STAGE_ENCRYPT |			\
 	ZIO_STAGE_DVA_ALLOCATE)
 
 #define	ZIO_DDT_CHILD_WRITE_PIPELINE		\

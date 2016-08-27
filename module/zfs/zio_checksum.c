@@ -67,18 +67,21 @@ zio_checksum_off(const void *buf, uint64_t size, zio_cksum_t *zcp)
 	ZIO_SET_CHECKSUM(zcp, 0, 0, 0, 0);
 }
 
+/* BEGIN CSTYLED */
 zio_checksum_info_t zio_checksum_table[ZIO_CHECKSUM_FUNCTIONS] = {
-	{{NULL,			NULL},			0, 0, 0, "inherit"},
-	{{NULL,			NULL},			0, 0, 0, "on"},
-	{{zio_checksum_off,	zio_checksum_off},	0, 0, 0, "off"},
-	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 1, 0, "label"},
-	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 1, 0, "gang_header"},
-	{{fletcher_2_native,	fletcher_2_byteswap},	0, 1, 0, "zilog"},
-	{{fletcher_2_native,	fletcher_2_byteswap},	0, 0, 0, "fletcher2"},
-	{{fletcher_4_native,	fletcher_4_byteswap},	1, 0, 0, "fletcher4"},
-	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 0, 1, "sha256"},
-	{{fletcher_4_native,	fletcher_4_byteswap},	0, 1, 0, "zilog2"},
+	{{NULL,			NULL},			0, 0, 0, 0, "inherit"},
+	{{NULL,			NULL},			0, 0, 0, 0, "on"},
+	{{zio_checksum_off,	zio_checksum_off},	0, 0, 0, 0, "off"},
+	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 1, 0, 0, "label"},
+	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 1, 0, 0, "gang_header"},
+	{{fletcher_2_native,	fletcher_2_byteswap},	0, 1, 0, 0, "zilog"},
+	{{fletcher_2_native,	fletcher_2_byteswap},	0, 0, 0, 0, "fletcher2"},
+	{{fletcher_4_native,	fletcher_4_byteswap},	1, 0, 0, 0, "fletcher4"},
+	{{zio_checksum_SHA256,	zio_checksum_SHA256},	1, 0, 1, 0, "sha256"},
+	{{fletcher_4_native,	fletcher_4_byteswap},	0, 1, 0, 0, "zilog2"},
+	{{zio_checksum_SHAMAC,	zio_checksum_SHAMAC},	1, 0, 1, 1, "sha256-mac"},
 };
+/* END CSTYLED */
 
 enum zio_checksum
 zio_checksum_select(enum zio_checksum child, enum zio_checksum parent)
@@ -261,8 +264,18 @@ zio_checksum_error(zio_t *zio, zio_bad_cksum_t *info)
 	info->zbc_injected = 0;
 	info->zbc_has_cksum = 1;
 
-	if (!ZIO_CHECKSUM_EQUAL(actual_cksum, expected_cksum))
-		return (SET_ERROR(ECKSUM));
+	/*
+	 * MAC checksums are a special case since half of this checksum will
+	 * actually be the encryption MAC. This will be verified by the
+	 * decryption process, so we just check the real checksum now.
+	 */
+	if (ci->ci_mac) {
+		if (!ZIO_CHECKSUM_MAC_EQUAL(actual_cksum, expected_cksum))
+			return (SET_ERROR(ECKSUM));
+	} else {
+		if (!ZIO_CHECKSUM_EQUAL(actual_cksum, expected_cksum))
+			return (SET_ERROR(ECKSUM));
+	}
 
 	if (zio_injection_enabled && !zio->io_error &&
 	    (error = zio_handle_fault_injection(zio, ECKSUM)) != 0) {
