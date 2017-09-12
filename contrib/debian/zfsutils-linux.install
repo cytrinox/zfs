@@ -16,7 +16,6 @@ sbin/zstreamdump
 sbin/zinject
 sbin/zhack
 sbin/zdb
-sbin/zpios
 sbin/zpool
 sbin/zfs
 usr/sbin/arc_summary
