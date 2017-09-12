@@ -1164,7 +1164,7 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 	 * or (if there a no active holders)
 	 *	just null out the current db_data pointer.
 	 */
-	ASSERT(dr->dr_txg >= txg - 2);
+	ASSERT3U(dr->dr_txg, >=, txg - 2);
 	if (db->db_blkid == DMU_BONUS_BLKID) {
 		dnode_t *dn = DB_DNODE(db);
 		int bonuslen = DN_SLOTS_TO_BONUSLEN(dn->dn_num_slots);
