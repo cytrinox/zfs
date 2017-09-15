@@ -1737,6 +1737,7 @@ zfs_ioc_pool_freeze(zfs_cmd_t *zc)
 	int error;
 
 	error = spa_open(zc->zc_name, &spa, FTAG);
+	zfs_dbgmsg("-------> HERE: %s %d", zc->zc_name, error);
 	if (error == 0) {
 		spa_freeze(spa);
 		spa_close(spa, FTAG);

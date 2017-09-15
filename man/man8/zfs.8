@@ -2179,18 +2179,31 @@ and
 .Sy pbkdf2iters .
 After entering an encryption key, the
 created dataset will become an encryption root. Any descendant datasets will
-inherit their encryption key from the encryption root, meaning that loading,
-unloading, or changing the key for the encryption root will implicitly do the
-same for all inheriting datasets. If this inheritance is not desired, simply
-supply a new
+inherit their encryption key from the encryption root by default, meaning that
+loading, unloading, or changing the key for the encryption root will implicitly
+do the same for all inheriting datasets. If this inheritance is not desired,
+simply supply a
 .Sy keyformat
 when creating the child dataset or use
 .Nm zfs Cm change-key
-to break the relationship after the fact. The new
+to break an existing relationship, creating a new encryption root on the child.
+Note that the child's
 .Sy keyformat
-may match that of the parent. The one exception is that clones will always use
-their origin's encryption key. Encryption root inheritance can be tracked via
-the read-only
+may match that of the parent while still creating a new encryption root, and
+that changing the
+.Sy encryption
+property alone does not create a new encryption root; this would simply use a
+different cipher suite with the same key as its encryption root. The one
+exception is that clones will always use their origin's encryption key.
+As a result of this exception, some encryption-related properties (namely
+.Sy keystatus ,
+.Sy keyformat ,
+.Sy keylocation ,
+and
+.Sy pbkdf2iters )
+do not inherit like other ZFS properties and instead use the value determined
+by their encryption root. Encryption root inheritance can be tracked via the
+read-only
 .Sy encryptionroot
 property.
 .Pp
