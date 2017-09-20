@@ -7930,9 +7930,15 @@ l2arc_untransform(zio_t *zio, l2arc_read_callback_t *cb)
 	 */
 	ASSERT3U(BP_GET_TYPE(bp), !=, DMU_OT_INTENT_LOG);
 	ASSERT(MUTEX_HELD(HDR_LOCK(hdr)));
+	ASSERT3P(hdr->b_l1hdr.b_pabd, !=, NULL);
 
-	/* If the data was encrypted, decrypt it now */
-	if (HDR_ENCRYPTED(hdr)) {
+	/*
+	 * If the data was encrypted, decrypt it now. Note that
+	 * we must check the bp here and not the hdr, since the
+	 * hdr does not have its encryption parameters updated
+	 * until arc_read_done().
+	 */
+	if (BP_IS_ENCRYPTED(bp)) {
 		abd_t *eabd = arc_get_data_abd(hdr,
 		    arc_hdr_size(hdr), hdr);
 
@@ -8058,7 +8064,16 @@ l2arc_read_done(zio_t *zio)
 		 */
 		abd_free(cb->l2rcb_abd);
 		zio->io_size = zio->io_orig_size = arc_hdr_size(hdr);
-		zio->io_abd = zio->io_orig_abd = hdr->b_l1hdr.b_pabd;
+
+		if (BP_IS_ENCRYPTED(&cb->l2rcb_bp) &&
+		    (cb->l2rcb_flags & ZIO_FLAG_RAW_ENCRYPT)) {
+			ASSERT(HDR_HAS_RABD(hdr));
+			zio->io_abd = zio->io_orig_abd =
+			    hdr->b_crypt_hdr.b_rabd;
+		} else {
+			ASSERT3P(hdr->b_l1hdr.b_pabd, !=, NULL);
+			zio->io_abd = zio->io_orig_abd = hdr->b_l1hdr.b_pabd;
+		}
 	}
 
 	ASSERT3P(zio->io_abd, !=, NULL);
