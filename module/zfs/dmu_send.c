@@ -2572,7 +2572,11 @@ receive_freeobjects(struct receive_writer_arg *rwa,
 			return (err);
 		}
 
-		err = dmu_free_long_object(rwa->os, obj);
+		if (rwa->raw)
+			err = dmu_free_long_object_raw(rwa->os, obj);
+		else
+			err = dmu_free_long_object(rwa->os, obj);
+
 		if (err != 0)
 			return (err);
 	}
@@ -2585,9 +2589,8 @@ noinline static int
 receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
     arc_buf_t *abuf)
 {
-	dmu_tx_t *tx;
-	dmu_buf_t *bonus;
 	int err;
+	dmu_tx_t *tx;
 
 	if (drrw->drr_offset + drrw->drr_logical_size < drrw->drr_offset ||
 	    !DMU_OT_IS_VALID(drrw->drr_type))
@@ -2609,7 +2612,6 @@ receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
 		return (SET_ERROR(EINVAL));
 
 	tx = dmu_tx_create(rwa->os);
-
 	dmu_tx_hold_write(tx, drrw->drr_object,
 	    drrw->drr_offset, drrw->drr_logical_size);
 	err = dmu_tx_assign(tx, TXG_WAIT);
@@ -2629,10 +2631,8 @@ receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
 		    DRR_WRITE_PAYLOAD_SIZE(drrw));
 	}
 
-	/* use the bonus buf to look up the dnode in dmu_assign_arcbuf */
-	if (dmu_bonus_hold(rwa->os, drrw->drr_object, FTAG, &bonus) != 0)
-		return (SET_ERROR(EINVAL));
-	dmu_assign_arcbuf(bonus, drrw->drr_offset, abuf, tx);
+	dmu_assign_arcbuf(rwa->os, drrw->drr_object,
+	    drrw->drr_offset, abuf, tx);
 
 	/*
 	 * Note: If the receive fails, we want the resume stream to start
@@ -2642,7 +2642,6 @@ receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
 	 */
 	save_resume_state(rwa, drrw->drr_object, drrw->drr_offset, tx);
 	dmu_tx_commit(tx);
-	dmu_buf_rele(bonus, FTAG);
 
 	return (0);
 }
@@ -2738,6 +2737,8 @@ receive_write_embedded(struct receive_writer_arg *rwa,
 		return (SET_ERROR(EINVAL));
 	if (drrwe->drr_compression >= ZIO_COMPRESS_FUNCTIONS)
 		return (SET_ERROR(EINVAL));
+	if (rwa->raw)
+		return (SET_ERROR(EINVAL));
 
 	tx = dmu_tx_create(rwa->os);
 
@@ -2806,7 +2807,7 @@ receive_spill(struct receive_writer_arg *rwa, struct drr_spill *drrs,
 	if (db_spill->db_size < drrs->drr_length)
 		VERIFY(0 == dbuf_spill_set_blksz(db_spill,
 		    drrs->drr_length, tx));
-	dmu_assign_arcbuf_impl(db_spill, abuf, tx);
+	dmu_assign_arcbuf_by_dbuf_impl(db_spill, abuf, tx);
 
 	dmu_buf_rele(db, FTAG);
 	dmu_buf_rele(db_spill, FTAG);
@@ -2828,8 +2829,13 @@ receive_free(struct receive_writer_arg *rwa, struct drr_free *drrf)
 	if (dmu_object_info(rwa->os, drrf->drr_object, NULL) != 0)
 		return (SET_ERROR(EINVAL));
 
-	err = dmu_free_long_range(rwa->os, drrf->drr_object,
-	    drrf->drr_offset, drrf->drr_length);
+	if (rwa->raw) {
+		err = dmu_free_long_range_raw(rwa->os, drrf->drr_object,
+		    drrf->drr_offset, drrf->drr_length);
+	} else {
+		err = dmu_free_long_range(rwa->os, drrf->drr_object,
+		    drrf->drr_offset, drrf->drr_length);
+	}
 
 	return (err);
 }
